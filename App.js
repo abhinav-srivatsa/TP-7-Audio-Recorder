@@ -269,42 +269,57 @@ export default function App() {
         
         {/* Main TP-7 Device */}
         <View style={styles.tp7Container}>
-          {/* Top Display */}
+          {/* Top Section */}
           <View style={styles.topSection}>
-            <View style={styles.topLeft}>
-              <View style={styles.dot} />
-              <View style={styles.dot} />
+            {/* Top Left Dots */}
+            <View style={styles.topLeftDots}>
+              <View style={styles.smallDot} />
+              <View style={styles.smallDot} />
             </View>
-            <View style={styles.display}>
-              <Text style={styles.timeText}>
+
+            {/* Top Right Display */}
+            <View style={[styles.display, isRecording && styles.displayRecording]}>
+              <Text style={[styles.timeText, isRecording && styles.timeTextRecording]}>
                 {isRecording || recordingDuration > 0 ? formatDuration(recordingDuration) : '0.00.00'}
               </Text>
               <View style={styles.dateRow}>
-                <Text style={styles.dateText}>{currentDate}</Text>
-                <View style={styles.batteryIcon} />
+                <Text style={styles.dateText}>TODAY</Text>
+                <View style={styles.dateBox}>
+                  <Text style={styles.dateNumber}>13</Text>
+                </View>
               </View>
             </View>
+
+            {/* Orange Square Top Right */}
+            <View style={styles.orangeSquareTop} />
           </View>
 
-          {/* Main Disk Area */}
-          <View style={styles.diskSection}>
+          {/* Main Content Area */}
+          <View style={styles.mainArea}>
             {/* Left Controls */}
             <View style={styles.leftControls}>
-              <TouchableOpacity style={styles.arrowButton}>
-                <Text style={styles.arrowText}>▲</Text>
-              </TouchableOpacity>
-              <Text style={styles.arrowLabel}>A</Text>
-              <TouchableOpacity style={styles.arrowButton}>
-                <Text style={styles.arrowText}>▼</Text>
-              </TouchableOpacity>
-              <Text style={styles.arrowLabel}>B</Text>
+              <View style={styles.arrowGroup}>
+                <TouchableOpacity style={styles.arrowButton}>
+                  <Text style={styles.arrowText}>▲</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.arrowButton}>
+                  <Text style={styles.arrowText}>▲</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={styles.spacer} />
+              <View style={styles.bottomArrowGroup}>
+                <TouchableOpacity style={styles.arrowButton}>
+                  <Text style={[styles.arrowText, { transform: [{ rotate: '180deg' }] }]}>▲</Text>
+                </TouchableOpacity>
+                <Text style={styles.rLabel}>R</Text>
+              </View>
             </View>
 
             {/* Central Disk */}
             <View style={styles.diskContainer} {...panResponder.panHandlers}>
               <Animated.View 
                 style={[
-                  styles.disk,
+                  styles.largeDisk,
                   {
                     transform: [
                       {
@@ -319,45 +334,44 @@ export default function App() {
                 ]}
               >
                 <View style={styles.diskLine} />
-                <View style={styles.centerCircle} />
+                <View style={styles.diskCenter} />
               </Animated.View>
-            </View>
-
-            {/* Right Controls */}
-            <View style={styles.rightControls}>
-              <TouchableOpacity style={styles.orangeSquare} />
             </View>
 
             {/* Bottom Left Black Circle */}
             <View style={styles.bottomLeftCircle} />
           </View>
 
-          {/* Control Buttons */}
-          <View style={styles.controlSection}>
+          {/* Bottom Control Section */}
+          <View style={styles.bottomControlSection}>
             <TouchableOpacity 
-              style={styles.controlButton}
+              style={styles.bottomControlButton}
               onPress={isRecording ? stopRecording : startRecording}
             >
               <View style={[
-                styles.recordButton, 
-                { backgroundColor: isRecording ? '#ff3333' : '#ff6b35' }
+                styles.orangeCircle, 
+                { backgroundColor: isRecording ? '#ff3333' : '#f0630d' }
               ]} />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.controlButton}>
+            
+            <TouchableOpacity style={styles.bottomControlButton}>
               <Text style={styles.playButton}>▶</Text>
             </TouchableOpacity>
+            
             <TouchableOpacity 
-              style={styles.controlButton}
+              style={styles.bottomControlButton}
               onPress={stopRecording}
             >
-              <View style={styles.stopButton} />
+              <View style={styles.blackSquare} />
             </TouchableOpacity>
-            <View style={styles.rightSection}>
-              <View style={styles.verticalLines}>
-                <View style={[styles.line, { backgroundColor: isRecording ? '#ff6b35' : '#ddd' }]} />
-                <View style={[styles.line, { backgroundColor: isRecording ? '#ff6b35' : '#ddd' }]} />
-                <View style={[styles.line, { backgroundColor: isRecording ? '#ff6b35' : '#ddd' }]} />
-                <View style={[styles.line, { backgroundColor: isRecording ? '#ff6b35' : '#ddd' }]} />
+            
+            <View style={styles.levelIndicator}>
+              <View style={styles.levelBars}>
+                <View style={[styles.levelBar, { backgroundColor: isRecording ? '#f0630d' : '#e0e0e0' }]} />
+                <View style={[styles.levelBar, { backgroundColor: isRecording ? '#f0630d' : '#e0e0e0' }]} />
+                <View style={[styles.levelBar, { backgroundColor: isRecording ? '#f0630d' : '#e0e0e0' }]} />
+                <View style={[styles.levelBar, { backgroundColor: isRecording ? '#f0630d' : '#e0e0e0' }]} />
+                <View style={[styles.levelBar, { backgroundColor: isRecording ? '#f0630d' : '#e0e0e0' }]} />
               </View>
             </View>
           </View>
@@ -402,20 +416,34 @@ export default function App() {
 
 const RecordingItem = ({ recording }) => (
   <View style={styles.recordingItem}>
-    <View style={styles.recordingHeader}>
-      <TouchableOpacity style={styles.playIcon}>
+    {/* Top Row: Play button + Progress bar + Duration */}
+    <View style={styles.recordingTopRow}>
+      <TouchableOpacity style={styles.playIconContainer}>
         <Text style={styles.playIconText}>▶</Text>
       </TouchableOpacity>
-      <Text style={styles.duration}>{recording.duration}</Text>
+      <View style={styles.progressBarContainer}>
+        <View style={styles.progressBar} />
+      </View>
+      <View style={styles.durationContainer}>
+        <Text style={styles.duration}>{recording.duration}</Text>
+      </View>
     </View>
-    <Text style={styles.transcriptionLabel}>Transcription</Text>
-    <Text style={styles.transcriptionText}>{recording.transcription}</Text>
-    {recording.transcription.includes('...') && (
-      <TouchableOpacity>
-        <Text style={styles.showMore}>Show More</Text>
-      </TouchableOpacity>
-    )}
-    <Text style={styles.timestamp}>{recording.time}</Text>
+    
+    {/* Content Row: Transcription + Timestamp */}
+    <View style={styles.recordingContentRow}>
+      <View style={styles.transcriptionSection}>
+        <Text style={styles.transcriptionLabel}>Transcription</Text>
+        <Text style={styles.transcriptionText} numberOfLines={4} ellipsizeMode="tail">
+          {recording.transcription}
+        </Text>
+        {recording.transcription.includes('...') && (
+          <TouchableOpacity>
+            <Text style={styles.showMore}>Show More</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+      <Text style={styles.timestamp}>{recording.time}</Text>
+    </View>
   </View>
 );
 
@@ -429,44 +457,59 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   tp7Container: {
-    backgroundColor: '#f8f8f8',
-    borderRadius: 20,
+    borderRadius: 16,
     marginVertical: 20,
-    padding: 20,
-    borderWidth: 2,
-    borderColor: '#333',
+    borderWidth: 1.189,
+    borderColor: '#000000',
     minHeight: 500,
+    position: 'relative',
   },
+  
+  // Top Section
   topSection: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 15,
-    paddingHorizontal: 2,
+    marginBottom: 20,
+    marginTop: 14,
+    marginRight: 14,
+    paddingHorizontal: 5,
   },
-  topLeft: {
+  topLeftDots: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 40,
+    alignItems: 'center',
+    marginTop: 8,
+    left: 100,
+    top: 30,
   },
-  dot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#333',
+  smallDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 5,
+    backgroundColor: '#000000',
   },
   display: {
-    borderRadius: 8,
-    padding: 8,
+    borderRadius: 4,
+    padding: 4,
     borderWidth: 1,
-    borderColor: '#333',
-    minWidth: 88,
+    borderColor: '#000000',
+    minWidth: 76,
+    backgroundColor: '#ffffff',
   },
   timeText: {
-    fontSize: 16,
-    fontWeight: 'bold',
+    fontSize: 18,
+    fontWeight: '600',
     fontFamily: 'JetBrainsMono_700Bold',
     textAlign: 'center',
-    marginBottom: 4,
+    color: '#000000',
+    lineHeight: 22,
+  },
+  displayRecording: {
+    borderColor: '#f0630d',
+  },
+  timeTextRecording: {
+    color: '#f0630d',
   },
   dateRow: {
     flexDirection: 'row',
@@ -475,148 +518,172 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   dateText: {
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: 'bold',
     fontFamily: 'JetBrainsMono_700Bold',
+    color: '#000000',
   },
-  batteryIcon: {
-    width: 12,
-    height: 8,
-    backgroundColor: '#333',
-    borderRadius: 1,
-    marginLeft: 5,
+  dateBox: {
+    backgroundColor: '#000000',
+    borderRadius: 2,
+    paddingHorizontal: 2,
+    paddingVertical: 1,
+    minWidth: 12,
+    alignItems: 'center',
   },
-  diskSection: {
+  dateNumber: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    fontFamily: 'JetBrainsMono_700Bold',
+    color: '#ffffff',
+  },
+  orangeSquareTop: {
+    width: 13.077,
+    height: 13.077,
+    backgroundColor: '#f0630d',
+    position: 'absolute',
+    top: 76,
+    right: 2,
+  },
+
+  // Main Area
+  mainArea: {
+    flex: 1,
     position: 'relative',
     alignItems: 'center',
-    marginVertical: 15,
-    height: 280,
+    justifyContent: 'center',
+    paddingVertical: 20,
   },
   leftControls: {
     position: 'absolute',
-    left: -8,
-    top: -12,
-    transform: [{ translateY: -40 }],
+    left: 6,
+    top: 0,
+    height: '100%',
+    width: 16,
+    justifyContent: 'space-between',
     alignItems: 'center',
-    gap: 8,
-    zIndex: 2,
+  },
+  arrowGroup: {
+    alignItems: 'center',
+    gap: 2,
   },
   arrowButton: {
-    width: 20,
-    height: 20,
+    width: 14,
+    height: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
   arrowText: {
     fontSize: 16,
-    color: '#333',
+    color: '#000000',
     fontFamily: 'JetBrainsMono_700Bold',
   },
-  arrowLabel: {
+  spacer: {
+    flex: 1,
+  },
+  bottomArrowGroup: {
+    alignItems: 'center',
+    gap: 2,
+  },
+  rLabel: {
     fontSize: 16,
-    color: '#333',
-    fontWeight: 'bold',
-    fontFamily: 'JetBrainsMono_700Bold',
+    color: '#000000',
+    fontFamily: 'Inter_400Regular',
+    fontWeight: '400',
+    transform: [{ rotate: '270deg' }],
   },
-  rightControls: {
-    position: 'absolute',
-    right: 0,
-    top: '10%',
-    transform: [{ translateY: -10 }],
-  },
-  orangeSquare: {
-    width: 16,
-    height: 16,
-    backgroundColor: '#ff6b35',
-  },
+
+  // Central Disk
   diskContainer: {
     alignItems: 'center',
     justifyContent: 'center',
+    position: 'relative',
+    marginTop: -20,
   },
-  disk: {
-    width: 310,
-    height: 310,
-    borderRadius: 300,
-    backgroundColor: '#f0f0f0',
-    borderWidth: 2,
-    borderColor: '#333',
+  largeDisk: {
+    width: 312.657,
+    height: 312.657,
+    borderRadius: 156.328,
+    borderWidth: 1,
+    borderColor: '#000000',
     position: 'relative',
     alignItems: 'center',
     justifyContent: 'center',
   },
   diskLine: {
     position: 'absolute',
-    width: 2,
-    height: 240,
-    backgroundColor: '#333',
+    width: 1,
+    height: 280,
+    backgroundColor: '#000000',
   },
-  centerCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 80,
-    backgroundColor: '#f0f0f0',
-    borderWidth: 2,
-    borderColor: '#333',
+  diskCenter: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#000000',
   },
   bottomLeftCircle: {
     position: 'absolute',
-    bottom: -30,
-    left: 10,
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: '#333',
+    bottom: 8,
+    left: 26,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#000000',
   },
-  controlSection: {
+
+  // Bottom Control Section
+  bottomControlSection: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 40,
-    paddingTop: 20,
-    borderTopWidth: 2,
-    borderTopColor: '#333',
-    height: 80,
+    height: 123.636,
+    borderTopWidth: 1,
+    borderTopColor: '#000000',
+    marginTop: 20,
   },
-  controlButton: {
+  bottomControlButton: {
     flex: 1,
-    height: '100%',
     alignItems: 'center',
     justifyContent: 'center',
-    borderRightWidth: 2,
-    borderRightHeight: '100%',
-    borderRightColor: '#333',
+    borderRightWidth: 1,
+    borderRightColor: '#000000',
+    paddingVertical: 24.965,
   },
-  recordButton: {
-    width: 24,
-    height: 24,
-    borderRadius: 24,
-    paddingLeft: 24,
-    backgroundColor: '#ff6b35',
+  orangeCircle: {
+    width: 15,
+    height: 15,
+    borderRadius: 7.5,
+    backgroundColor: '#f0630d',
   },
   playButton: {
-    fontSize: 24,
-    color: '#333',
+    fontSize: 25,
+    color: '#000000',
     fontFamily: 'JetBrainsMono_700Bold',
   },
-  stopButton: {
-    width: 20,
-    height: 20,
-    backgroundColor: '#333',
+  blackSquare: {
+    width: 15,
+    height: 15,
+    backgroundColor: '#333333',
   },
-  rightSection: {
+  levelIndicator: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    borderRightWidth: 0,
   },
-  verticalLines: {
+  levelBars: {
     flexDirection: 'row',
     gap: 3,
+    alignItems: 'flex-end',
   },
-  line: {
+  levelBar: {
     width: 2,
     height: 20,
-    backgroundColor: '#ddd',
+    backgroundColor: '#e0e0e0',
   },
+
+  // Save Button and Recordings
   saveButton: {
     backgroundColor: '#ff6b35',
     paddingVertical: 15,
@@ -642,56 +709,95 @@ const styles = StyleSheet.create({
   },
   recordingItem: {
     backgroundColor: 'white',
-    borderRadius: 8,
-    padding: 16,
+    padding: 8,
     marginBottom: 10,
-    borderWidth: 1,
-    borderColor: 'black',
+    borderWidth: 0.5,
+    borderColor: '#000000',
+    gap: 12,
   },
-  recordingHeader: {
+  recordingTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 8,
+    width: '100%',
   },
-  playIcon: {
+  playIconContainer: {
+    width: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
     marginRight: 8,
   },
   playIconText: {
-    color: '#ff6b35',
-    fontSize: 18,
+    color: '#f0630d',
+    fontSize: 16,
     fontFamily: 'JetBrainsMono_400Regular',
+  },
+  progressBarContainer: {
+    flex: 1,
+    height: 2,
+    backgroundColor: '#eeeeee',
+    marginRight: 8,
+  },
+  progressBar: {
+    height: '100%',
+    width: '30%',
+    backgroundColor: '#f0630d',
+  },
+  durationContainer: {
+    paddingHorizontal: 6,
   },
   duration: {
     fontSize: 16,
-    fontWeight: 'bold',
+    fontWeight: '600',
     fontFamily: 'JetBrainsMono_700Bold',
+    color: '#000000',
+  },
+  recordingContentRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 8,
+  },
+  transcriptionSection: {
+    flex: 1,
+    gap: 6,
   },
   transcriptionLabel: {
     fontSize: 12,
-    color: '#AAAAAA',
-    marginBottom: 4,
-    fontFamily: 'JetBrainsMono_400Regular',
+    fontWeight: '600',
+    color: '#aaaaaa',
+    fontFamily: 'JetBrainsMono_700Bold',
+    lineHeight: 12,
   },
   transcriptionText: {
-    fontSize: 14,
-    color: 'black',
+    fontSize: 16,
+    color: '#000000',
     lineHeight: 20,
-    marginBottom: 8,
     fontFamily: 'JetBrainsMono_400Regular',
   },
   showMore: {
-    color: '#ff6b35',
+    color: '#f0630d',
     fontSize: 14,
-    fontWeight: '500',
-    fontFamily: 'JetBrainsMono_500Medium',
-    marginBottom: 2,
-    marginTop: 6,
+    fontWeight: '600',
+    fontFamily: 'JetBrainsMono_700Bold',
+    lineHeight: 16,
   },
   timestamp: {
     fontSize: 12,
-    color: '#999',
+    fontWeight: '600',
+    color: '#aaaaaa',
     textAlign: 'right',
-    fontFamily: 'JetBrainsMono_400Regular',
+    fontFamily: 'JetBrainsMono_700Bold',
+    lineHeight: 12,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+  },
+  loadingText: {
+    fontSize: 18,
+    fontFamily: 'JetBrainsMono_700Bold',
+    color: '#333',
   },
 });
