@@ -68,6 +68,7 @@ export default function App() {
   
   // Playback state
   const [playingId, setPlayingId] = useState(null);
+  const [isPlaybackPaused, setIsPlaybackPaused] = useState(false);
   const [playbackProgress, setPlaybackProgress] = useState({});
   const [currentSound, setCurrentSound] = useState(null);
   const [playbackPosition, setPlaybackPosition] = useState(0);
@@ -412,6 +413,7 @@ export default function App() {
       
       setCurrentSound(sound);
       setPlayingId(recording.id);
+      setIsPlaybackPaused(false);
       
       // Set volume to maximum after loading
       await sound.setVolumeAsync(1.0);
@@ -444,6 +446,7 @@ export default function App() {
           // Stop when finished
           if (status.didJustFinish) {
             setPlayingId(null);
+            setIsPlaybackPaused(false);
             setPlaybackPosition(0);
             setPlaybackProgress(prev => ({
               ...prev,
@@ -462,14 +465,46 @@ export default function App() {
     }
   };
 
+  const playMostRecentRecording = async () => {
+    try {
+      // Check if there are any recordings
+      if (recordings.length === 0) {
+        Alert.alert('No Recordings', 'There are no recordings to play. Record something first!');
+        return;
+      }
+
+      // Get the most recent recording (first in array)
+      const mostRecentRecording = recordings[0];
+      
+      // Check if the recording has a valid URI
+      if (!mostRecentRecording.uri) {
+        Alert.alert('Invalid Recording', 'The most recent recording cannot be played.');
+        return;
+      }
+
+      console.log('Playing most recent recording:', mostRecentRecording.uri);
+      
+      // Use the existing playRecording function
+      await playRecording(mostRecentRecording);
+      
+    } catch (error) {
+      console.error('Error playing most recent recording:', error);
+      Alert.alert('Playback Error', 'Could not play the most recent recording.');
+    }
+  };
+
   const pausePlayback = async () => {
     try {
       if (currentSound) {
         const status = await currentSound.getStatusAsync();
         if (status.isLoaded && status.isPlaying) {
           await currentSound.pauseAsync();
+          setIsPlaybackPaused(true);
+          console.log('Playback paused');
         } else if (status.isLoaded && !status.isPlaying) {
           await currentSound.playAsync();
+          setIsPlaybackPaused(false);
+          console.log('Playback resumed');
         }
       }
     } catch (error) {
@@ -485,6 +520,7 @@ export default function App() {
         setCurrentSound(null);
       }
       setPlayingId(null);
+      setIsPlaybackPaused(false);
       setPlaybackPosition(0);
       setPlaybackProgress({});
     } catch (error) {
@@ -794,16 +830,22 @@ export default function App() {
           {/* Bottom Control Section */}
           <View style={styles.bottomControlSection}>
             <TouchableOpacity 
-              style={styles.bottomControlButton}
+              style={[styles.bottomControlButton, { opacity: 1.0 }]}
               onPress={isRecording ? stopRecording : startRecording}
             >
               <View style={[
                 styles.orangeCircle, 
-                { backgroundColor: isRecording ? '#ff3333' : '#f0630d' }
+                { 
+                  backgroundColor: isRecording ? '#ff3333' : '#f0630d',
+                  opacity: isRecording ? 0.5 : 1.0
+                }
               ]} />
             </TouchableOpacity>
             
-            <TouchableOpacity style={styles.bottomControlButton}>
+            <TouchableOpacity 
+              style={styles.bottomControlButton}
+              onPress={playMostRecentRecording}
+            >
               <Text style={styles.playButton}>▶</Text>
             </TouchableOpacity>
             
@@ -816,11 +858,11 @@ export default function App() {
             
             <View style={styles.levelIndicator}>
               <View style={styles.levelBars}>
-                <View style={[styles.levelBar, { backgroundColor: isRecording ? '#f0630d' : '#e0e0e0' }]} />
-                <View style={[styles.levelBar, { backgroundColor: isRecording ? '#f0630d' : '#e0e0e0' }]} />
-                <View style={[styles.levelBar, { backgroundColor: isRecording ? '#f0630d' : '#e0e0e0' }]} />
-                <View style={[styles.levelBar, { backgroundColor: isRecording ? '#f0630d' : '#e0e0e0' }]} />
-                <View style={[styles.levelBar, { backgroundColor: isRecording ? '#f0630d' : '#e0e0e0' }]} />
+                <View style={[styles.levelBar, { backgroundColor: (isRecording || (playingId && !isPlaybackPaused)) ? '#f0630d' : '#e0e0e0' }]} />
+                <View style={[styles.levelBar, { backgroundColor: (isRecording || (playingId && !isPlaybackPaused)) ? '#f0630d' : '#e0e0e0' }]} />
+                <View style={[styles.levelBar, { backgroundColor: (isRecording || (playingId && !isPlaybackPaused)) ? '#f0630d' : '#e0e0e0' }]} />
+                <View style={[styles.levelBar, { backgroundColor: (isRecording || (playingId && !isPlaybackPaused)) ? '#f0630d' : '#e0e0e0' }]} />
+                <View style={[styles.levelBar, { backgroundColor: (isRecording || (playingId && !isPlaybackPaused)) ? '#f0630d' : '#e0e0e0' }]} />
               </View>
             </View>
           </View>
@@ -853,7 +895,8 @@ export default function App() {
             <RecordingItem 
               key={recording.id} 
               recording={recording} 
-              isPlaying={playingId === recording.id}
+              isPlaying={playingId === recording.id && !isPlaybackPaused}
+              isPaused={playingId === recording.id && isPlaybackPaused}
               progress={playbackProgress[recording.id] || 0}
               onPlay={() => playRecording(recording)}
               onPause={pausePlayback}
@@ -865,7 +908,8 @@ export default function App() {
             <RecordingItem 
               key={recording.id} 
               recording={recording} 
-              isPlaying={playingId === recording.id}
+              isPlaying={playingId === recording.id && !isPlaybackPaused}
+              isPaused={playingId === recording.id && isPlaybackPaused}
               progress={playbackProgress[recording.id] || 0}
               onPlay={() => playRecording(recording)}
               onPause={pausePlayback}
@@ -877,7 +921,7 @@ export default function App() {
   );
 }
 
-const RecordingItem = ({ recording, isPlaying, progress, onPlay, onPause }) => {
+const RecordingItem = ({ recording, isPlaying, isPaused, progress, onPlay, onPause }) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
   const toggleExpanded = () => {
@@ -887,13 +931,27 @@ const RecordingItem = ({ recording, isPlaying, progress, onPlay, onPause }) => {
   // Simple heuristic: if transcription is longer than ~200 characters, show read more
   const isLongTranscription = recording.transcription && recording.transcription.length > 200;
 
+  // Determine what function to call when button is pressed
+  const handlePlayPause = () => {
+    if (isPlaying) {
+      // Currently playing → pause it
+      onPause();
+    } else if (isPaused) {
+      // Currently paused → resume it
+      onPause();
+    } else {
+      // Not playing and not paused → start from beginning
+      onPlay();
+    }
+  };
+
   return (
     <View style={styles.recordingItem}>
       {/* Top Row: Play button + Progress bar + Duration */}
       <View style={styles.recordingTopRow}>
         <TouchableOpacity 
           style={styles.playIconContainer}
-          onPress={recording.uri ? (isPlaying ? onPause : onPlay) : null}
+          onPress={recording.uri ? handlePlayPause : null}
           disabled={!recording.uri}
         >
           <Text style={[
