@@ -715,38 +715,6 @@ export default function App() {
     );
   }
 
-  // Initial sample recordings for demo
-  const sampleRecordings = recordings.length === 0 ? [
-    {
-      id: 1,
-      duration: '00:30',
-      transcription: 'Yo mama so fat she hit da quan. For real.',
-      time: '11:35 AM',
-      section: 'Today'
-    },
-    {
-      id: 2,
-      duration: '01:24',
-      transcription: "This is a very long transcription to test the read more functionality. It contains multiple sentences and should definitely exceed the 200 character limit that we've set. When this transcription is displayed, it should show only the first few lines and then display a 'Read More' button. When the user taps 'Read More', the full transcription should expand to show all the content. This is exactly what we want to test to ensure our expandable transcription feature is working correctly. The transcription should collapse back when 'Read Less' is tapped.",
-      time: '11:35 AM',
-      section: 'Today'
-    },
-    {
-      id: 3,
-      duration: '00:30',
-      transcription: 'Yo mama so fat she hit da quan. For real.',
-      time: '11:35 AM',
-      section: 'Yesterday'
-    },
-    {
-      id: 4,
-      duration: '00:24',
-      transcription: "Well I'm a peanut bar and I'm here to say. Your checks will arrive on another day! Another day, another dime, another rh...",
-      time: '11:35 AM',
-      section: 'Yesterday'
-    }
-  ] : recordings;
-
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="dark" />
@@ -890,31 +858,45 @@ export default function App() {
 
         {/* Recordings List */}
         <View style={styles.recordingsSection}>
-          <Text style={styles.sectionTitle}>Today</Text>
-          {sampleRecordings.filter(r => r.section === 'Today').map((recording) => (
-            <RecordingItem 
-              key={recording.id} 
-              recording={recording} 
-              isPlaying={playingId === recording.id && !isPlaybackPaused}
-              isPaused={playingId === recording.id && isPlaybackPaused}
-              progress={playbackProgress[recording.id] || 0}
-              onPlay={() => playRecording(recording)}
-              onPause={pausePlayback}
-            />
-          ))}
-          
-          <Text style={styles.sectionTitle}>Yesterday</Text>
-          {sampleRecordings.filter(r => r.section === 'Yesterday').map((recording) => (
-            <RecordingItem 
-              key={recording.id} 
-              recording={recording} 
-              isPlaying={playingId === recording.id && !isPlaybackPaused}
-              isPaused={playingId === recording.id && isPlaybackPaused}
-              progress={playbackProgress[recording.id] || 0}
-              onPlay={() => playRecording(recording)}
-              onPause={pausePlayback}
-            />
-          ))}
+          {recordings.length === 0 ? (
+            <Text style={styles.noRecordingsText}>No recordings yet</Text>
+          ) : (
+            <>
+              {recordings.filter(r => r.section === 'Today').length > 0 && (
+                <>
+                  <Text style={styles.sectionTitle}>Today</Text>
+                  {recordings.filter(r => r.section === 'Today').map((recording) => (
+                    <RecordingItem 
+                      key={recording.id} 
+                      recording={recording} 
+                      isPlaying={playingId === recording.id && !isPlaybackPaused}
+                      isPaused={playingId === recording.id && isPlaybackPaused}
+                      progress={playbackProgress[recording.id] || 0}
+                      onPlay={() => playRecording(recording)}
+                      onPause={pausePlayback}
+                    />
+                  ))}
+                </>
+              )}
+              
+              {recordings.filter(r => r.section === 'Yesterday').length > 0 && (
+                <>
+                  <Text style={styles.sectionTitle}>Yesterday</Text>
+                  {recordings.filter(r => r.section === 'Yesterday').map((recording) => (
+                    <RecordingItem 
+                      key={recording.id} 
+                      recording={recording} 
+                      isPlaying={playingId === recording.id && !isPlaybackPaused}
+                      isPaused={playingId === recording.id && isPlaybackPaused}
+                      progress={playbackProgress[recording.id] || 0}
+                      onPlay={() => playRecording(recording)}
+                      onPause={pausePlayback}
+                    />
+                  ))}
+                </>
+              )}
+            </>
+          )}
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -1267,6 +1249,14 @@ const styles = StyleSheet.create({
     color: '#333',
     fontFamily: 'JetBrainsMono_700Bold',
   },
+  noRecordingsText: {
+    fontSize: 16,
+    color: '#888',
+    textAlign: 'center',
+    marginVertical: 40,
+    fontFamily: 'JetBrainsMono_400Regular',
+    fontStyle: 'italic',
+  },
   recordingItem: {
     backgroundColor: 'white',
     padding: 8,
@@ -1349,8 +1339,15 @@ const styles = StyleSheet.create({
   transcriptionText: {
     fontSize: 16,
     color: '#000000',
-    lineHeight: 20,
+    lineHeight: 24,
     fontFamily: 'JetBrainsMono_400Regular',
+    textAlign: 'left',
+    textAlignVertical: 'top',
+    paddingLeft: 0,
+    marginLeft: 0,
+    paddingRight: 0,
+    marginRight: 0,
+    includeFontPadding: false,
   },
   showMore: {
     color: '#f0630d',
