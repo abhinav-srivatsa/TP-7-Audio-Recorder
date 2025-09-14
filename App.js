@@ -14,12 +14,23 @@ import {
 } from 'react-native';
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
+import axios from 'axios';
+import Constants from 'expo-constants';
 import {
   useFonts,
   JetBrainsMono_400Regular,
   JetBrainsMono_500Medium,
   JetBrainsMono_700Bold
 } from '@expo-google-fonts/jetbrains-mono';
+
+// Groq API Configuration
+const GROQ_CONFIG = {
+  API_KEY: Constants.expoConfig?.extra?.groqApiKey || '',
+  WHISPER_ENDPOINT: 'https://api.groq.com/openai/v1/audio/transcriptions',
+  MODEL: 'distil-whisper-large-v3-en',
+  RESPONSE_FORMAT: 'json',
+  LANGUAGE: 'en',
+};
 
 const { width } = Dimensions.get('window');
 
@@ -38,6 +49,9 @@ export default function App() {
   const [currentSound, setCurrentSound] = useState(null);
   const [playbackPosition, setPlaybackPosition] = useState(0);
   const [playbackDuration, setPlaybackDuration] = useState(0);
+
+  // Transcription state
+  const [isTranscribing, setIsTranscribing] = useState(false);
   
   // Animation refs
   const diskRotation = useRef(new Animated.Value(0)).current;
@@ -59,13 +73,29 @@ export default function App() {
         const { status } = await Audio.requestPermissionsAsync();
         if (status !== 'granted') {
           Alert.alert('Permission needed', 'Please grant microphone permission to record audio.');
+          return;
         }
-        await Audio.setAudioModeAsync({
+
+        // Build audio mode compatible with recent Expo SDKs
+        const mode = {
           allowsRecordingIOS: true,
           playsInSilentModeIOS: true,
-        });
-      } catch (error) {
-        console.error('Failed to setup audio:', error);
+          staysActiveInBackground: false,
+          shouldDuckAndroid: true,
+          playThroughEarpieceAndroid: false,
+        };
+
+        // Use new enums if available (SDK 50/51+). Older SDKs will ignore these lines.
+        if (Audio.InterruptionModeIOS) {
+          mode.interruptionModeIOS = Audio.InterruptionModeIOS.DoNotMix;
+        }
+        if (Audio.InterruptionModeAndroid) {
+          mode.interruptionModeAndroid = Audio.InterruptionModeAndroid.DoNotMix;
+        }
+
+        await Audio.setAudioModeAsync(mode);
+      } catch (e) {
+        console.error('Failed to setup audio:', e);
       }
     };
     setupAudio();
@@ -170,18 +200,19 @@ export default function App() {
       await recording.stopAndUnloadAsync();
       const uri = recording.getURI();
       
-      // Create new recording entry
+      // Create new recording entry with transcription placeholder
       const newRecording = {
         id: Date.now(),
         duration: formatDuration(recordingDuration),
-        transcription: 'New recording...',
+        transcription: 'Transcribing...',
         time: new Date().toLocaleTimeString('en-US', { 
           hour: '2-digit', 
           minute: '2-digit',
           hour12: true 
         }),
         section: 'Today',
-        uri: uri
+        uri: uri,
+        isTranscribing: true
       };
 
       setRecordings(prev => [newRecording, ...prev]);
@@ -189,6 +220,9 @@ export default function App() {
       setIsRecording(false);
       setIsPaused(false);
       setRecordingDuration(0);
+
+      // Start transcription in background
+      transcribeWithGroq(newRecording);
     } catch (error) {
       console.error('Failed to stop recording:', error);
       Alert.alert('Recording Error', 'Failed to stop recording.');
@@ -217,14 +251,24 @@ export default function App() {
         return;
       }
 
-      // Create and load the sound
+      // Create and load the sound with volume settings
       const { sound } = await Audio.Sound.createAsync(
         { uri: recording.uri },
-        { shouldPlay: true, isLooping: false }
+        { 
+          shouldPlay: true, 
+          isLooping: false,
+          volume: 1.0,
+          rate: 1.0,
+          shouldCorrectPitch: true,
+          androidImplementation: 'MediaPlayer',
+        }
       );
       
       setCurrentSound(sound);
       setPlayingId(recording.id);
+      
+      // Set volume to maximum after loading
+      await sound.setVolumeAsync(1.0);
       
       // Get duration and set up progress tracking
       const status = await sound.getStatusAsync();
@@ -304,6 +348,127 @@ export default function App() {
     };
   }, [currentSound]);
 
+  // Groq transcription function
+  const transcribeWithGroq = async (recording) => {
+    try {
+      // Check if Groq API key is configured
+      if (!GROQ_CONFIG.API_KEY || GROQ_CONFIG.API_KEY === 'your-groq-api-key-here') {
+        setRecordings(prev => 
+          prev.map(r => 
+            r.id === recording.id 
+              ? { ...r, transcription: 'Transcription not available - Groq API key not configured', isTranscribing: false }
+              : r
+          )
+        );
+        return;
+      }
+
+      // Validate audio file
+      if (!recording.uri) {
+        throw new Error('Audio file not found');
+      }
+
+      const fileInfo = await FileSystem.getInfoAsync(recording.uri);
+      if (!fileInfo.exists) {
+        throw new Error('Audio file does not exist');
+      }
+
+      console.log('Starting Groq transcription for:', recording.uri);
+      console.log('File size:', fileInfo.size, 'bytes');
+
+      setIsTranscribing(true);
+
+      // Prepare form data for Groq API
+      const formData = new FormData();
+      
+      // Add the audio file
+      formData.append('file', {
+        uri: recording.uri,
+        type: 'audio/m4a',
+        name: 'recording.m4a',
+      });
+      
+      // Add required parameters
+      formData.append('model', GROQ_CONFIG.MODEL);
+      formData.append('response_format', GROQ_CONFIG.RESPONSE_FORMAT);
+      formData.append('temperature', '0.0'); // More focused transcription
+      
+      // Optional language parameter
+      if (GROQ_CONFIG.LANGUAGE) {
+        formData.append('language', GROQ_CONFIG.LANGUAGE);
+      }
+
+      // Make API request to Groq
+      const response = await axios.post(
+        GROQ_CONFIG.WHISPER_ENDPOINT,
+        formData,
+        {
+          headers: {
+            'Authorization': `Bearer ${GROQ_CONFIG.API_KEY}`,
+            'Content-Type': 'multipart/form-data',
+          },
+          timeout: 30000, // 30 second timeout
+        }
+      );
+
+      // Extract transcription from response
+      const transcription = response.data.text || 'No transcription available';
+      console.log('Groq transcription successful:', transcription.substring(0, 100) + '...');
+      
+      // Update the recording with transcription
+      setRecordings(prev => 
+        prev.map(r => 
+          r.id === recording.id 
+            ? { ...r, transcription: transcription, isTranscribing: false }
+            : r
+        )
+      );
+
+    } catch (error) {
+      console.error('Groq transcription error:', error);
+      
+      let errorMessage = 'Failed to transcribe audio';
+      
+      if (error.response) {
+        const status = error.response.status;
+        const apiMessage = error.response.data?.error?.message || 'Unknown API error';
+        
+        switch (status) {
+          case 401:
+            errorMessage = 'Invalid Groq API key';
+            break;
+          case 413:
+            errorMessage = 'Audio file too large (max 25MB)';
+            break;
+          case 429:
+            errorMessage = 'API rate limit exceeded';
+            break;
+          case 400:
+            errorMessage = `Bad request: ${apiMessage}`;
+            break;
+          default:
+            errorMessage = `API Error (${status}): ${apiMessage}`;
+        }
+      } else if (error.request) {
+        errorMessage = 'Network error - check internet connection';
+      }
+      
+      // Update with error message
+      setRecordings(prev => 
+        prev.map(r => 
+          r.id === recording.id 
+            ? { ...r, transcription: `Transcription failed: ${errorMessage}`, isTranscribing: false }
+            : r
+        )
+      );
+
+      // Show error to user
+      Alert.alert('Transcription Failed', errorMessage);
+    } finally {
+      setIsTranscribing(false);
+    }
+  };
+
   // Two-finger gesture handler for disk
   const panResponder = PanResponder.create({
     onStartShouldSetPanResponder: (evt) => evt.nativeEvent.touches.length === 2,
@@ -350,8 +515,8 @@ export default function App() {
     },
     {
       id: 2,
-      duration: '00:24',
-      transcription: "Well I'm a peanut bar and I'm here to say. Your checks will arrive on another day! Another day, another dime, another rh...",
+      duration: '01:24',
+      transcription: "This is a very long transcription to test the read more functionality. It contains multiple sentences and should definitely exceed the 200 character limit that we've set. When this transcription is displayed, it should show only the first few lines and then display a 'Read More' button. When the user taps 'Read More', the full transcription should expand to show all the content. This is exactly what we want to test to ensure our expandable transcription feature is working correctly. The transcription should collapse back when 'Read Less' is tapped.",
       time: '11:35 AM',
       section: 'Today'
     },
@@ -537,52 +702,77 @@ export default function App() {
   );
 }
 
-const RecordingItem = ({ recording, isPlaying, progress, onPlay, onPause }) => (
-  <View style={styles.recordingItem}>
-    {/* Top Row: Play button + Progress bar + Duration */}
-    <View style={styles.recordingTopRow}>
-      <TouchableOpacity 
-        style={styles.playIconContainer}
-        onPress={recording.uri ? (isPlaying ? onPause : onPlay) : null}
-        disabled={!recording.uri}
-      >
-        <Text style={[
-          styles.playIconText,
-          !recording.uri && styles.playIconDisabled
-        ]}>
-          {isPlaying ? "⏸" : "▶"}
-        </Text>
-      </TouchableOpacity>
-      <View style={styles.progressBarContainer}>
-        <View 
-          style={[
-            styles.progressBar, 
-            { width: `${progress}%` }
-          ]} 
-        />
+const RecordingItem = ({ recording, isPlaying, progress, onPlay, onPause }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  const toggleExpanded = () => {
+    setIsExpanded(!isExpanded);
+  };
+
+  // Simple heuristic: if transcription is longer than ~200 characters, show read more
+  const isLongTranscription = recording.transcription && recording.transcription.length > 200;
+
+  return (
+    <View style={styles.recordingItem}>
+      {/* Top Row: Play button + Progress bar + Duration */}
+      <View style={styles.recordingTopRow}>
+        <TouchableOpacity 
+          style={styles.playIconContainer}
+          onPress={recording.uri ? (isPlaying ? onPause : onPlay) : null}
+          disabled={!recording.uri}
+        >
+          <Text style={[
+            styles.playIconText,
+            !recording.uri && styles.playIconDisabled
+          ]}>
+            {isPlaying ? "⏸" : "▶"}
+          </Text>
+        </TouchableOpacity>
+        <View style={styles.progressBarContainer}>
+          <View 
+            style={[
+              styles.progressBar, 
+              { width: `${progress}%` }
+            ]} 
+          />
+        </View>
+        <View style={styles.durationContainer}>
+          <Text style={styles.duration}>{recording.duration}</Text>
+        </View>
       </View>
-      <View style={styles.durationContainer}>
-        <Text style={styles.duration}>{recording.duration}</Text>
+      
+      {/* Content Row: Transcription + Timestamp */}
+      <View style={styles.recordingContentRow}>
+        <View style={styles.transcriptionSection}>
+          <View style={styles.transcriptionHeader}>
+            <Text style={styles.transcriptionLabel}>Transcription</Text>
+            {recording.isTranscribing && (
+              <Text style={styles.transcribingIndicator}>Processing...</Text>
+            )}
+          </View>
+          <Text 
+            style={[
+              styles.transcriptionText,
+              recording.isTranscribing && styles.transcriptionTextLoading
+            ]} 
+            numberOfLines={isExpanded ? undefined : 4} 
+            ellipsizeMode="tail"
+          >
+            {recording.transcription}
+          </Text>
+          {isLongTranscription && !recording.isTranscribing && (
+            <TouchableOpacity onPress={toggleExpanded} style={styles.readMoreButton}>
+              <Text style={styles.showMore}>
+                {isExpanded ? 'Read Less' : 'Read More'}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+        <Text style={styles.timestamp}>{recording.time}</Text>
       </View>
     </View>
-    
-    {/* Content Row: Transcription + Timestamp */}
-    <View style={styles.recordingContentRow}>
-      <View style={styles.transcriptionSection}>
-        <Text style={styles.transcriptionLabel}>Transcription</Text>
-        <Text style={styles.transcriptionText} numberOfLines={4} ellipsizeMode="tail">
-          {recording.transcription}
-        </Text>
-        {recording.transcription.includes('...') && (
-          <TouchableOpacity>
-            <Text style={styles.showMore}>Show More</Text>
-          </TouchableOpacity>
-        )}
-      </View>
-      <Text style={styles.timestamp}>{recording.time}</Text>
-    </View>
-  </View>
-);
+  );
+};
 
 const styles = StyleSheet.create({
   container: {
@@ -907,6 +1097,22 @@ const styles = StyleSheet.create({
     fontFamily: 'JetBrainsMono_700Bold',
     lineHeight: 12,
   },
+  transcriptionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 2,
+  },
+  transcribingIndicator: {
+    fontSize: 10,
+    color: '#f0630d',
+    fontFamily: 'JetBrainsMono_500Medium',
+    fontStyle: 'italic',
+  },
+  transcriptionTextLoading: {
+    fontStyle: 'italic',
+    color: '#666666',
+  },
   transcriptionText: {
     fontSize: 16,
     color: '#000000',
@@ -919,6 +1125,10 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontFamily: 'JetBrainsMono_700Bold',
     lineHeight: 16,
+  },
+  readMoreButton: {
+    marginTop: 4,
+    alignSelf: 'flex-start',
   },
   timestamp: {
     fontSize: 12,
