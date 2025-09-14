@@ -34,6 +34,29 @@ const GROQ_CONFIG = {
 
 const { width } = Dimensions.get('window');
 
+// Recording options for better audio quality
+const recordingOptions = {
+  android: {
+    extension: '.m4a',
+    outputFormat: Audio.RECORDING_OPTION_ANDROID_OUTPUT_FORMAT_MPEG_4,
+    audioEncoder: Audio.RECORDING_OPTION_ANDROID_AUDIO_ENCODER_AAC,
+    sampleRate: 44100,
+    numberOfChannels: 1,
+    bitRate: 256000,
+  },
+  ios: {
+    extension: '.m4a',
+    outputFormat: Audio.RECORDING_OPTION_IOS_OUTPUT_FORMAT_MPEG4AAC,
+    audioQuality: Audio.RECORDING_OPTION_IOS_AUDIO_QUALITY_HIGH,
+    sampleRate: 44100,
+    numberOfChannels: 1,
+    bitRate: 256000,
+    linearPCMBitDepth: 16,
+    linearPCMIsBigEndian: false,
+    linearPCMIsFloat: false,
+  },
+};
+
 export default function App() {
   // Recording state
   const [isRecording, setIsRecording] = useState(false);
@@ -45,6 +68,7 @@ export default function App() {
   
   // Playback state
   const [playingId, setPlayingId] = useState(null);
+  const [isPlaybackPaused, setIsPlaybackPaused] = useState(false);
   const [playbackProgress, setPlaybackProgress] = useState({});
   const [currentSound, setCurrentSound] = useState(null);
   const [playbackPosition, setPlaybackPosition] = useState(0);
@@ -161,19 +185,83 @@ export default function App() {
   // Audio recording functions
   const startRecording = async () => {
     try {
+      // If there's already a recording in progress, stop it first
       if (recording) {
-        await recording.stopAndUnloadAsync();
+        console.log('Stopping existing recording before starting new one');
+        try {
+          const status = await recording.getStatusAsync();
+          if (status.isRecording) {
+            await recording.stopAndUnloadAsync();
+          }
+        } catch (stopError) {
+          console.log('Error stopping existing recording:', stopError.message);
+        }
+        setRecording(null);
+        setIsRecording(false);
       }
 
-      const { recording: newRecording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
-      );
+      console.log('Starting recording with improved options...');
+      
+      // Set optimal audio mode for recording
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+        shouldDuckAndroid: false,
+        playThroughEarpieceAndroid: false,
+      });
+
+      const currentRecordingOptions = recordingOptions;
+      
+      console.log('Attempting to create recording with high-quality options');
+      
+      let newRecording;
+      try {
+        const { recording } = await Audio.Recording.createAsync(currentRecordingOptions);
+        newRecording = recording;
+        console.log('Recording created successfully with custom options');
+      } catch (optionsError) {
+        console.log('Custom options failed, trying Expo preset:', optionsError.message);
+        // Fallback to Expo preset if our custom options fail
+        const { recording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+        newRecording = recording;
+        console.log('Recording created successfully with Expo preset');
+      }
+      
+      // Log recording options for debugging
+      console.log('Using high-quality recording mode');
+      
+      // Get recording status for debugging
+      const status = await newRecording.getStatusAsync();
+      console.log('Recording status after creation:', status);
+      
       setRecording(newRecording);
       setIsRecording(true);
       setIsPaused(false);
+      
+      // Start disk animation
+      startDiskAnimation();
     } catch (error) {
       console.error('Failed to start recording:', error);
-      Alert.alert('Recording Error', 'Failed to start recording. Please try again.');
+      console.error('Error details:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      });
+      
+      setIsRecording(false);
+      setRecording(null);
+      
+      let errorMessage = 'Failed to start recording. ';
+      if (error.message.includes('permission')) {
+        errorMessage += 'Please check microphone permissions.';
+      } else if (error.message.includes('audio')) {
+        errorMessage += 'Audio system error. Try restarting the app.';
+      } else {
+        errorMessage += error.message;
+      }
+      
+      Alert.alert('Recording Error', errorMessage);
     }
   };
 
@@ -195,10 +283,25 @@ export default function App() {
 
   const stopRecording = async () => {
     try {
-      if (!recording) return;
+      if (!recording) {
+        console.log('No recording to stop');
+        return;
+      }
 
-      await recording.stopAndUnloadAsync();
+      // Get URI before stopping to avoid potential race condition
       const uri = recording.getURI();
+      console.log('Stopping recording with URI:', uri);
+
+      // Check if recording is still valid before stopping
+      const status = await recording.getStatusAsync();
+      console.log('Recording status before stopping:', status);
+
+      if (status.isRecording || status.isDoneRecording) {
+        await recording.stopAndUnloadAsync();
+        console.log('Recording stopped successfully');
+      } else {
+        console.log('Recording was already stopped');
+      }
       
       // Create new recording entry with transcription placeholder
       const newRecording = {
@@ -221,11 +324,27 @@ export default function App() {
       setIsPaused(false);
       setRecordingDuration(0);
 
+      // Stop disk animation
+      stopDiskAnimation();
+
       // Start transcription in background
       transcribeWithGroq(newRecording);
     } catch (error) {
       console.error('Failed to stop recording:', error);
-      Alert.alert('Recording Error', 'Failed to stop recording.');
+      console.error('Error details:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      });
+      
+      // Reset state even if stopping failed
+      setRecording(null);
+      setIsRecording(false);
+      setIsPaused(false);
+      setRecordingDuration(0);
+      stopDiskAnimation();
+      
+      Alert.alert('Recording Error', 'Failed to stop recording properly, but state has been reset.');
     }
   };
 
@@ -239,6 +358,22 @@ export default function App() {
   // Playback functions
   const playRecording = async (recording) => {
     try {
+      console.log('Attempting to play recording:', recording.uri);
+      
+      // Check if file exists and is valid
+      const fileInfo = await FileSystem.getInfoAsync(recording.uri);
+      console.log('File info for playback:', fileInfo);
+      
+      if (!fileInfo.exists) {
+        Alert.alert('Error', 'Recording file no longer exists');
+        return;
+      }
+      
+      if (fileInfo.size === 0) {
+        Alert.alert('Error', 'Recording file is empty');
+        return;
+      }
+      
       // Stop any currently playing sound
       if (currentSound) {
         await currentSound.unloadAsync();
@@ -251,6 +386,17 @@ export default function App() {
         return;
       }
 
+      // Set audio mode for playback
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+        shouldDuckAndroid: false,
+        playThroughEarpieceAndroid: false,
+      });
+
+      console.log('Creating sound from URI:', recording.uri);
+
       // Create and load the sound with volume settings
       const { sound } = await Audio.Sound.createAsync(
         { uri: recording.uri },
@@ -260,18 +406,24 @@ export default function App() {
           volume: 1.0,
           rate: 1.0,
           shouldCorrectPitch: true,
-          androidImplementation: 'MediaPlayer',
         }
       );
       
+      console.log('Sound created successfully');
+      
       setCurrentSound(sound);
       setPlayingId(recording.id);
+      setIsPlaybackPaused(false);
       
       // Set volume to maximum after loading
       await sound.setVolumeAsync(1.0);
       
+      console.log('Volume set to 1.0');
+      
       // Get duration and set up progress tracking
       const status = await sound.getStatusAsync();
+      console.log('Sound status:', status);
+      
       if (status.isLoaded) {
         setPlaybackDuration(status.durationMillis || 0);
       }
@@ -294,6 +446,7 @@ export default function App() {
           // Stop when finished
           if (status.didJustFinish) {
             setPlayingId(null);
+            setIsPlaybackPaused(false);
             setPlaybackPosition(0);
             setPlaybackProgress(prev => ({
               ...prev,
@@ -305,7 +458,38 @@ export default function App() {
 
     } catch (error) {
       console.error('Error playing recording:', error);
-      Alert.alert('Playback Error', 'Could not play the recording');
+      console.error('Error details:', error.message);
+      setPlayingId(null);
+      setCurrentSound(null);
+      Alert.alert('Playback Error', `Could not play the recording: ${error.message}`);
+    }
+  };
+
+  const playMostRecentRecording = async () => {
+    try {
+      // Check if there are any recordings
+      if (recordings.length === 0) {
+        Alert.alert('No Recordings', 'There are no recordings to play. Record something first!');
+        return;
+      }
+
+      // Get the most recent recording (first in array)
+      const mostRecentRecording = recordings[0];
+      
+      // Check if the recording has a valid URI
+      if (!mostRecentRecording.uri) {
+        Alert.alert('Invalid Recording', 'The most recent recording cannot be played.');
+        return;
+      }
+
+      console.log('Playing most recent recording:', mostRecentRecording.uri);
+      
+      // Use the existing playRecording function
+      await playRecording(mostRecentRecording);
+      
+    } catch (error) {
+      console.error('Error playing most recent recording:', error);
+      Alert.alert('Playback Error', 'Could not play the most recent recording.');
     }
   };
 
@@ -315,8 +499,12 @@ export default function App() {
         const status = await currentSound.getStatusAsync();
         if (status.isLoaded && status.isPlaying) {
           await currentSound.pauseAsync();
+          setIsPlaybackPaused(true);
+          console.log('Playback paused');
         } else if (status.isLoaded && !status.isPlaying) {
           await currentSound.playAsync();
+          setIsPlaybackPaused(false);
+          console.log('Playback resumed');
         }
       }
     } catch (error) {
@@ -332,6 +520,7 @@ export default function App() {
         setCurrentSound(null);
       }
       setPlayingId(null);
+      setIsPlaybackPaused(false);
       setPlaybackPosition(0);
       setPlaybackProgress({});
     } catch (error) {
@@ -351,8 +540,14 @@ export default function App() {
   // Groq transcription function
   const transcribeWithGroq = async (recording) => {
     try {
+      // Debug log for API key
+      const apiKey = Constants.expoConfig?.extra?.groqApiKey;
+      console.log('API Key available:', !!apiKey);
+      console.log('API Key length:', apiKey ? apiKey.length : 0);
+      
       // Check if Groq API key is configured
       if (!GROQ_CONFIG.API_KEY || GROQ_CONFIG.API_KEY === 'your-groq-api-key-here') {
+        console.log('GROQ_CONFIG.API_KEY:', GROQ_CONFIG.API_KEY);
         setRecordings(prev => 
           prev.map(r => 
             r.id === recording.id 
@@ -375,6 +570,7 @@ export default function App() {
 
       console.log('Starting Groq transcription for:', recording.uri);
       console.log('File size:', fileInfo.size, 'bytes');
+      console.log('File exists:', fileInfo.exists);
 
       setIsTranscribing(true);
 
@@ -398,6 +594,10 @@ export default function App() {
         formData.append('language', GROQ_CONFIG.LANGUAGE);
       }
 
+      console.log('Sending request to Groq API...');
+      console.log('Endpoint:', GROQ_CONFIG.WHISPER_ENDPOINT);
+      console.log('Model:', GROQ_CONFIG.MODEL);
+
       // Make API request to Groq
       const response = await axios.post(
         GROQ_CONFIG.WHISPER_ENDPOINT,
@@ -411,9 +611,12 @@ export default function App() {
         }
       );
 
+      console.log('Response status:', response.status);
+      console.log('Response data:', response.data);
+
       // Extract transcription from response
       const transcription = response.data.text || 'No transcription available';
-      console.log('Groq transcription successful:', transcription.substring(0, 100) + '...');
+      console.log('Groq transcription successful:', transcription);
       
       // Update the recording with transcription
       setRecordings(prev => 
@@ -426,12 +629,20 @@ export default function App() {
 
     } catch (error) {
       console.error('Groq transcription error:', error);
+      console.error('Error details:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+        request: error.request ? 'Request made but no response' : 'No request made'
+      });
       
       let errorMessage = 'Failed to transcribe audio';
       
       if (error.response) {
         const status = error.response.status;
         const apiMessage = error.response.data?.error?.message || 'Unknown API error';
+        
+        console.log('API Error Response:', error.response.data);
         
         switch (status) {
           case 401:
@@ -503,38 +714,6 @@ export default function App() {
       </SafeAreaView>
     );
   }
-
-  // Initial sample recordings for demo
-  const sampleRecordings = recordings.length === 0 ? [
-    {
-      id: 1,
-      duration: '00:30',
-      transcription: 'Yo mama so fat she hit da quan. For real.',
-      time: '11:35 AM',
-      section: 'Today'
-    },
-    {
-      id: 2,
-      duration: '01:24',
-      transcription: "This is a very long transcription to test the read more functionality. It contains multiple sentences and should definitely exceed the 200 character limit that we've set. When this transcription is displayed, it should show only the first few lines and then display a 'Read More' button. When the user taps 'Read More', the full transcription should expand to show all the content. This is exactly what we want to test to ensure our expandable transcription feature is working correctly. The transcription should collapse back when 'Read Less' is tapped.",
-      time: '11:35 AM',
-      section: 'Today'
-    },
-    {
-      id: 3,
-      duration: '00:30',
-      transcription: 'Yo mama so fat she hit da quan. For real.',
-      time: '11:35 AM',
-      section: 'Yesterday'
-    },
-    {
-      id: 4,
-      duration: '00:24',
-      transcription: "Well I'm a peanut bar and I'm here to say. Your checks will arrive on another day! Another day, another dime, another rh...",
-      time: '11:35 AM',
-      section: 'Yesterday'
-    }
-  ] : recordings;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -619,16 +798,22 @@ export default function App() {
           {/* Bottom Control Section */}
           <View style={styles.bottomControlSection}>
             <TouchableOpacity 
-              style={styles.bottomControlButton}
+              style={[styles.bottomControlButton, { opacity: 1.0 }]}
               onPress={isRecording ? stopRecording : startRecording}
             >
               <View style={[
                 styles.orangeCircle, 
-                { backgroundColor: isRecording ? '#ff3333' : '#f0630d' }
+                { 
+                  backgroundColor: isRecording ? '#ff3333' : '#f0630d',
+                  opacity: isRecording ? 0.5 : 1.0
+                }
               ]} />
             </TouchableOpacity>
             
-            <TouchableOpacity style={styles.bottomControlButton}>
+            <TouchableOpacity 
+              style={styles.bottomControlButton}
+              onPress={playMostRecentRecording}
+            >
               <Text style={styles.playButton}>▶</Text>
             </TouchableOpacity>
             
@@ -641,11 +826,11 @@ export default function App() {
             
             <View style={styles.levelIndicator}>
               <View style={styles.levelBars}>
-                <View style={[styles.levelBar, { backgroundColor: isRecording ? '#f0630d' : '#e0e0e0' }]} />
-                <View style={[styles.levelBar, { backgroundColor: isRecording ? '#f0630d' : '#e0e0e0' }]} />
-                <View style={[styles.levelBar, { backgroundColor: isRecording ? '#f0630d' : '#e0e0e0' }]} />
-                <View style={[styles.levelBar, { backgroundColor: isRecording ? '#f0630d' : '#e0e0e0' }]} />
-                <View style={[styles.levelBar, { backgroundColor: isRecording ? '#f0630d' : '#e0e0e0' }]} />
+                <View style={[styles.levelBar, { backgroundColor: (isRecording || (playingId && !isPlaybackPaused)) ? '#f0630d' : '#e0e0e0' }]} />
+                <View style={[styles.levelBar, { backgroundColor: (isRecording || (playingId && !isPlaybackPaused)) ? '#f0630d' : '#e0e0e0' }]} />
+                <View style={[styles.levelBar, { backgroundColor: (isRecording || (playingId && !isPlaybackPaused)) ? '#f0630d' : '#e0e0e0' }]} />
+                <View style={[styles.levelBar, { backgroundColor: (isRecording || (playingId && !isPlaybackPaused)) ? '#f0630d' : '#e0e0e0' }]} />
+                <View style={[styles.levelBar, { backgroundColor: (isRecording || (playingId && !isPlaybackPaused)) ? '#f0630d' : '#e0e0e0' }]} />
               </View>
             </View>
           </View>
@@ -673,36 +858,52 @@ export default function App() {
 
         {/* Recordings List */}
         <View style={styles.recordingsSection}>
-          <Text style={styles.sectionTitle}>Today</Text>
-          {sampleRecordings.filter(r => r.section === 'Today').map((recording) => (
-            <RecordingItem 
-              key={recording.id} 
-              recording={recording} 
-              isPlaying={playingId === recording.id}
-              progress={playbackProgress[recording.id] || 0}
-              onPlay={() => playRecording(recording)}
-              onPause={pausePlayback}
-            />
-          ))}
-          
-          <Text style={styles.sectionTitle}>Yesterday</Text>
-          {sampleRecordings.filter(r => r.section === 'Yesterday').map((recording) => (
-            <RecordingItem 
-              key={recording.id} 
-              recording={recording} 
-              isPlaying={playingId === recording.id}
-              progress={playbackProgress[recording.id] || 0}
-              onPlay={() => playRecording(recording)}
-              onPause={pausePlayback}
-            />
-          ))}
+          {recordings.length === 0 ? (
+            <Text style={styles.noRecordingsText}>No recordings yet</Text>
+          ) : (
+            <>
+              {recordings.filter(r => r.section === 'Today').length > 0 && (
+                <>
+                  <Text style={styles.sectionTitle}>Today</Text>
+                  {recordings.filter(r => r.section === 'Today').map((recording) => (
+                    <RecordingItem 
+                      key={recording.id} 
+                      recording={recording} 
+                      isPlaying={playingId === recording.id && !isPlaybackPaused}
+                      isPaused={playingId === recording.id && isPlaybackPaused}
+                      progress={playbackProgress[recording.id] || 0}
+                      onPlay={() => playRecording(recording)}
+                      onPause={pausePlayback}
+                    />
+                  ))}
+                </>
+              )}
+              
+              {recordings.filter(r => r.section === 'Yesterday').length > 0 && (
+                <>
+                  <Text style={styles.sectionTitle}>Yesterday</Text>
+                  {recordings.filter(r => r.section === 'Yesterday').map((recording) => (
+                    <RecordingItem 
+                      key={recording.id} 
+                      recording={recording} 
+                      isPlaying={playingId === recording.id && !isPlaybackPaused}
+                      isPaused={playingId === recording.id && isPlaybackPaused}
+                      progress={playbackProgress[recording.id] || 0}
+                      onPlay={() => playRecording(recording)}
+                      onPause={pausePlayback}
+                    />
+                  ))}
+                </>
+              )}
+            </>
+          )}
         </View>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-const RecordingItem = ({ recording, isPlaying, progress, onPlay, onPause }) => {
+const RecordingItem = ({ recording, isPlaying, isPaused, progress, onPlay, onPause }) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
   const toggleExpanded = () => {
@@ -712,13 +913,27 @@ const RecordingItem = ({ recording, isPlaying, progress, onPlay, onPause }) => {
   // Simple heuristic: if transcription is longer than ~200 characters, show read more
   const isLongTranscription = recording.transcription && recording.transcription.length > 200;
 
+  // Determine what function to call when button is pressed
+  const handlePlayPause = () => {
+    if (isPlaying) {
+      // Currently playing → pause it
+      onPause();
+    } else if (isPaused) {
+      // Currently paused → resume it
+      onPause();
+    } else {
+      // Not playing and not paused → start from beginning
+      onPlay();
+    }
+  };
+
   return (
     <View style={styles.recordingItem}>
       {/* Top Row: Play button + Progress bar + Duration */}
       <View style={styles.recordingTopRow}>
         <TouchableOpacity 
           style={styles.playIconContainer}
-          onPress={recording.uri ? (isPlaying ? onPause : onPlay) : null}
+          onPress={recording.uri ? handlePlayPause : null}
           disabled={!recording.uri}
         >
           <Text style={[
@@ -1034,6 +1249,14 @@ const styles = StyleSheet.create({
     color: '#333',
     fontFamily: 'JetBrainsMono_700Bold',
   },
+  noRecordingsText: {
+    fontSize: 16,
+    color: '#888',
+    textAlign: 'center',
+    marginVertical: 40,
+    fontFamily: 'JetBrainsMono_400Regular',
+    fontStyle: 'italic',
+  },
   recordingItem: {
     backgroundColor: 'white',
     padding: 8,
@@ -1116,8 +1339,15 @@ const styles = StyleSheet.create({
   transcriptionText: {
     fontSize: 16,
     color: '#000000',
-    lineHeight: 20,
+    lineHeight: 24,
     fontFamily: 'JetBrainsMono_400Regular',
+    textAlign: 'left',
+    textAlignVertical: 'top',
+    paddingLeft: 0,
+    marginLeft: 0,
+    paddingRight: 0,
+    marginRight: 0,
+    includeFontPadding: false,
   },
   showMore: {
     color: '#f0630d',
