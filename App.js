@@ -32,6 +32,13 @@ export default function App() {
   const [currentRecording, setCurrentRecording] = useState(null);
   const [recording, setRecording] = useState(null);
   
+  // Playback state
+  const [playingId, setPlayingId] = useState(null);
+  const [playbackProgress, setPlaybackProgress] = useState({});
+  const [currentSound, setCurrentSound] = useState(null);
+  const [playbackPosition, setPlaybackPosition] = useState(0);
+  const [playbackDuration, setPlaybackDuration] = useState(0);
+  
   // Animation refs
   const diskRotation = useRef(new Animated.Value(0)).current;
   const diskScale = useRef(new Animated.Value(1)).current;
@@ -194,6 +201,108 @@ export default function App() {
       Alert.alert('Recording Saved', 'Your recording has been saved successfully!');
     }
   };
+
+  // Playback functions
+  const playRecording = async (recording) => {
+    try {
+      // Stop any currently playing sound
+      if (currentSound) {
+        await currentSound.unloadAsync();
+        setCurrentSound(null);
+      }
+
+      // Don't play if no URI
+      if (!recording.uri) {
+        Alert.alert('Error', 'Recording file not found');
+        return;
+      }
+
+      // Create and load the sound
+      const { sound } = await Audio.Sound.createAsync(
+        { uri: recording.uri },
+        { shouldPlay: true, isLooping: false }
+      );
+      
+      setCurrentSound(sound);
+      setPlayingId(recording.id);
+      
+      // Get duration and set up progress tracking
+      const status = await sound.getStatusAsync();
+      if (status.isLoaded) {
+        setPlaybackDuration(status.durationMillis || 0);
+      }
+
+      // Set up playback status update
+      sound.setOnPlaybackStatusUpdate((status) => {
+        if (status.isLoaded) {
+          setPlaybackPosition(status.positionMillis || 0);
+          
+          // Update progress for this recording
+          const progress = status.durationMillis 
+            ? (status.positionMillis / status.durationMillis) * 100 
+            : 0;
+          
+          setPlaybackProgress(prev => ({
+            ...prev,
+            [recording.id]: progress
+          }));
+
+          // Stop when finished
+          if (status.didJustFinish) {
+            setPlayingId(null);
+            setPlaybackPosition(0);
+            setPlaybackProgress(prev => ({
+              ...prev,
+              [recording.id]: 0
+            }));
+          }
+        }
+      });
+
+    } catch (error) {
+      console.error('Error playing recording:', error);
+      Alert.alert('Playback Error', 'Could not play the recording');
+    }
+  };
+
+  const pausePlayback = async () => {
+    try {
+      if (currentSound) {
+        const status = await currentSound.getStatusAsync();
+        if (status.isLoaded && status.isPlaying) {
+          await currentSound.pauseAsync();
+        } else if (status.isLoaded && !status.isPlaying) {
+          await currentSound.playAsync();
+        }
+      }
+    } catch (error) {
+      console.error('Error pausing playback:', error);
+    }
+  };
+
+  const stopPlayback = async () => {
+    try {
+      if (currentSound) {
+        await currentSound.stopAsync();
+        await currentSound.unloadAsync();
+        setCurrentSound(null);
+      }
+      setPlayingId(null);
+      setPlaybackPosition(0);
+      setPlaybackProgress({});
+    } catch (error) {
+      console.error('Error stopping playback:', error);
+    }
+  };
+
+  // Clean up sound when component unmounts
+  useEffect(() => {
+    return () => {
+      if (currentSound) {
+        currentSound.unloadAsync();
+      }
+    };
+  }, [currentSound]);
 
   // Two-finger gesture handler for disk
   const panResponder = PanResponder.create({
@@ -401,12 +510,26 @@ export default function App() {
         <View style={styles.recordingsSection}>
           <Text style={styles.sectionTitle}>Today</Text>
           {sampleRecordings.filter(r => r.section === 'Today').map((recording) => (
-            <RecordingItem key={recording.id} recording={recording} />
+            <RecordingItem 
+              key={recording.id} 
+              recording={recording} 
+              isPlaying={playingId === recording.id}
+              progress={playbackProgress[recording.id] || 0}
+              onPlay={() => playRecording(recording)}
+              onPause={pausePlayback}
+            />
           ))}
           
           <Text style={styles.sectionTitle}>Yesterday</Text>
           {sampleRecordings.filter(r => r.section === 'Yesterday').map((recording) => (
-            <RecordingItem key={recording.id} recording={recording} />
+            <RecordingItem 
+              key={recording.id} 
+              recording={recording} 
+              isPlaying={playingId === recording.id}
+              progress={playbackProgress[recording.id] || 0}
+              onPlay={() => playRecording(recording)}
+              onPause={pausePlayback}
+            />
           ))}
         </View>
       </ScrollView>
@@ -414,15 +537,29 @@ export default function App() {
   );
 }
 
-const RecordingItem = ({ recording }) => (
+const RecordingItem = ({ recording, isPlaying, progress, onPlay, onPause }) => (
   <View style={styles.recordingItem}>
     {/* Top Row: Play button + Progress bar + Duration */}
     <View style={styles.recordingTopRow}>
-      <TouchableOpacity style={styles.playIconContainer}>
-        <Text style={styles.playIconText}>▶</Text>
+      <TouchableOpacity 
+        style={styles.playIconContainer}
+        onPress={recording.uri ? (isPlaying ? onPause : onPlay) : null}
+        disabled={!recording.uri}
+      >
+        <Text style={[
+          styles.playIconText,
+          !recording.uri && styles.playIconDisabled
+        ]}>
+          {isPlaying ? "⏸" : "▶"}
+        </Text>
       </TouchableOpacity>
       <View style={styles.progressBarContainer}>
-        <View style={styles.progressBar} />
+        <View 
+          style={[
+            styles.progressBar, 
+            { width: `${progress}%` }
+          ]} 
+        />
       </View>
       <View style={styles.durationContainer}>
         <Text style={styles.duration}>{recording.duration}</Text>
@@ -732,6 +869,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: 'JetBrainsMono_400Regular',
   },
+  playIconDisabled: {
+    color: '#cccccc',
+  },
   progressBarContainer: {
     flex: 1,
     height: 2,
@@ -740,7 +880,6 @@ const styles = StyleSheet.create({
   },
   progressBar: {
     height: '100%',
-    width: '30%',
     backgroundColor: '#f0630d',
   },
   durationContainer: {
