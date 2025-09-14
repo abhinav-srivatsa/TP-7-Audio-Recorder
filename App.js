@@ -34,6 +34,29 @@ const GROQ_CONFIG = {
 
 const { width } = Dimensions.get('window');
 
+// Recording options for better audio quality
+const recordingOptions = {
+  android: {
+    extension: '.m4a',
+    outputFormat: Audio.RECORDING_OPTION_ANDROID_OUTPUT_FORMAT_MPEG_4,
+    audioEncoder: Audio.RECORDING_OPTION_ANDROID_AUDIO_ENCODER_AAC,
+    sampleRate: 44100,
+    numberOfChannels: 2,
+    bitRate: 128000,
+  },
+  ios: {
+    extension: '.m4a',
+    outputFormat: Audio.RECORDING_OPTION_IOS_OUTPUT_FORMAT_MPEG4AAC,
+    audioQuality: Audio.RECORDING_OPTION_IOS_AUDIO_QUALITY_HIGH,
+    sampleRate: 44100,
+    numberOfChannels: 2,
+    bitRate: 128000,
+    linearPCMBitDepth: 16,
+    linearPCMIsBigEndian: false,
+    linearPCMIsFloat: false,
+  },
+};
+
 export default function App() {
   // Recording state
   const [isRecording, setIsRecording] = useState(false);
@@ -165,9 +188,14 @@ export default function App() {
         await recording.stopAndUnloadAsync();
       }
 
-      const { recording: newRecording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
-      );
+      console.log('Starting recording with improved options...');
+      
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
+
+      const { recording: newRecording } = await Audio.Recording.createAsync(recordingOptions);
       setRecording(newRecording);
       setIsRecording(true);
       setIsPaused(false);
@@ -351,8 +379,14 @@ export default function App() {
   // Groq transcription function
   const transcribeWithGroq = async (recording) => {
     try {
+      // Debug log for API key
+      const apiKey = Constants.expoConfig?.extra?.groqApiKey;
+      console.log('API Key available:', !!apiKey);
+      console.log('API Key length:', apiKey ? apiKey.length : 0);
+      
       // Check if Groq API key is configured
       if (!GROQ_CONFIG.API_KEY || GROQ_CONFIG.API_KEY === 'your-groq-api-key-here') {
+        console.log('GROQ_CONFIG.API_KEY:', GROQ_CONFIG.API_KEY);
         setRecordings(prev => 
           prev.map(r => 
             r.id === recording.id 
@@ -375,6 +409,7 @@ export default function App() {
 
       console.log('Starting Groq transcription for:', recording.uri);
       console.log('File size:', fileInfo.size, 'bytes');
+      console.log('File exists:', fileInfo.exists);
 
       setIsTranscribing(true);
 
@@ -398,6 +433,10 @@ export default function App() {
         formData.append('language', GROQ_CONFIG.LANGUAGE);
       }
 
+      console.log('Sending request to Groq API...');
+      console.log('Endpoint:', GROQ_CONFIG.WHISPER_ENDPOINT);
+      console.log('Model:', GROQ_CONFIG.MODEL);
+
       // Make API request to Groq
       const response = await axios.post(
         GROQ_CONFIG.WHISPER_ENDPOINT,
@@ -411,9 +450,12 @@ export default function App() {
         }
       );
 
+      console.log('Response status:', response.status);
+      console.log('Response data:', response.data);
+
       // Extract transcription from response
       const transcription = response.data.text || 'No transcription available';
-      console.log('Groq transcription successful:', transcription.substring(0, 100) + '...');
+      console.log('Groq transcription successful:', transcription);
       
       // Update the recording with transcription
       setRecordings(prev => 
@@ -426,12 +468,20 @@ export default function App() {
 
     } catch (error) {
       console.error('Groq transcription error:', error);
+      console.error('Error details:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+        request: error.request ? 'Request made but no response' : 'No request made'
+      });
       
       let errorMessage = 'Failed to transcribe audio';
       
       if (error.response) {
         const status = error.response.status;
         const apiMessage = error.response.data?.error?.message || 'Unknown API error';
+        
+        console.log('API Error Response:', error.response.data);
         
         switch (status) {
           case 401:
