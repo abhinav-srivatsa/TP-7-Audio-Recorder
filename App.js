@@ -184,8 +184,19 @@ export default function App() {
   // Audio recording functions
   const startRecording = async () => {
     try {
+      // If there's already a recording in progress, stop it first
       if (recording) {
-        await recording.stopAndUnloadAsync();
+        console.log('Stopping existing recording before starting new one');
+        try {
+          const status = await recording.getStatusAsync();
+          if (status.isRecording) {
+            await recording.stopAndUnloadAsync();
+          }
+        } catch (stopError) {
+          console.log('Error stopping existing recording:', stopError.message);
+        }
+        setRecording(null);
+        setIsRecording(false);
       }
 
       console.log('Starting recording with improved options...');
@@ -271,10 +282,25 @@ export default function App() {
 
   const stopRecording = async () => {
     try {
-      if (!recording) return;
+      if (!recording) {
+        console.log('No recording to stop');
+        return;
+      }
 
-      await recording.stopAndUnloadAsync();
+      // Get URI before stopping to avoid potential race condition
       const uri = recording.getURI();
+      console.log('Stopping recording with URI:', uri);
+
+      // Check if recording is still valid before stopping
+      const status = await recording.getStatusAsync();
+      console.log('Recording status before stopping:', status);
+
+      if (status.isRecording || status.isDoneRecording) {
+        await recording.stopAndUnloadAsync();
+        console.log('Recording stopped successfully');
+      } else {
+        console.log('Recording was already stopped');
+      }
       
       // Create new recording entry with transcription placeholder
       const newRecording = {
@@ -297,11 +323,27 @@ export default function App() {
       setIsPaused(false);
       setRecordingDuration(0);
 
+      // Stop disk animation
+      stopDiskAnimation();
+
       // Start transcription in background
       transcribeWithGroq(newRecording);
     } catch (error) {
       console.error('Failed to stop recording:', error);
-      Alert.alert('Recording Error', 'Failed to stop recording.');
+      console.error('Error details:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      });
+      
+      // Reset state even if stopping failed
+      setRecording(null);
+      setIsRecording(false);
+      setIsPaused(false);
+      setRecordingDuration(0);
+      stopDiskAnimation();
+      
+      Alert.alert('Recording Error', 'Failed to stop recording properly, but state has been reset.');
     }
   };
 
