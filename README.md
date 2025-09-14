@@ -32,3 +32,38 @@ This project is built with:
 - expo-av for audio recording/playback
 - react-native-reanimated for animations
 - react-native-gesture-handler for gestures
+
+## Setup for New Developers
+
+1. **Clone the repository**
+   ```bash
+   git clone <your-repo-url>
+   cd tp7-audio-recorder
+   ```
+
+2. **Install dependencies**
+   ```bash
+   npm install
+   ```
+
+3. **Configure environment variables**
+   ```bash
+   # Copy the example environment file
+   cp .env.example .env
+   
+   # Edit .env and add your Groq API key
+   EXPO_PUBLIC_GROQ_API_KEY=your-actual-groq-api-key-here
+   ```
+
+4. **Start the development server**
+   ```bash
+   # IMPORTANT: Use -c flag to clear cache and load new env vars
+   npx expo start -c
+   ```
+
+5. **Get a Groq API Key**
+   - Go to [console.groq.com](https://console.groq.com/)
+   - Create an account and generate an API key
+   - Replace `your-actual-groq-api-key-here` in `.env` with your key
+
+**Note**: If you add or change environment variables, always restart Expo with `npx expo start -c` to reload them.
