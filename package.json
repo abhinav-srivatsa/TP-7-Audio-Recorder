@@ -11,6 +11,7 @@
   "dependencies": {
     "@expo-google-fonts/jetbrains-mono": "^0.4.1",
     "@expo/metro-runtime": "~3.2.3",
+    "axios": "^1.12.1",
     "dotenv": "^17.2.2",
     "expo": "~51.0.28",
     "expo-av": "~14.0.7",

@@ -27,7 +27,7 @@ import {
 const GROQ_CONFIG = {
   API_KEY: Constants.expoConfig?.extra?.groqApiKey || '',
   WHISPER_ENDPOINT: 'https://api.groq.com/openai/v1/audio/transcriptions',
-  MODEL: 'distil-whisper-large-v3-en',
+  MODEL: 'whisper-large-v3', // Changed back to full model for better accuracy
   RESPONSE_FORMAT: 'json',
   LANGUAGE: 'en',
 };
