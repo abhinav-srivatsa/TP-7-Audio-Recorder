@@ -41,16 +41,16 @@ const recordingOptions = {
     outputFormat: Audio.RECORDING_OPTION_ANDROID_OUTPUT_FORMAT_MPEG_4,
     audioEncoder: Audio.RECORDING_OPTION_ANDROID_AUDIO_ENCODER_AAC,
     sampleRate: 44100,
-    numberOfChannels: 2,
-    bitRate: 128000,
+    numberOfChannels: 1,
+    bitRate: 256000,
   },
   ios: {
     extension: '.m4a',
     outputFormat: Audio.RECORDING_OPTION_IOS_OUTPUT_FORMAT_MPEG4AAC,
     audioQuality: Audio.RECORDING_OPTION_IOS_AUDIO_QUALITY_HIGH,
     sampleRate: 44100,
-    numberOfChannels: 2,
-    bitRate: 128000,
+    numberOfChannels: 1,
+    bitRate: 256000,
     linearPCMBitDepth: 16,
     linearPCMIsBigEndian: false,
     linearPCMIsFloat: false,
@@ -190,18 +190,66 @@ export default function App() {
 
       console.log('Starting recording with improved options...');
       
+      // Set optimal audio mode for recording
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+        shouldDuckAndroid: false,
+        playThroughEarpieceAndroid: false,
       });
 
-      const { recording: newRecording } = await Audio.Recording.createAsync(recordingOptions);
+      const currentRecordingOptions = recordingOptions;
+      
+      console.log('Attempting to create recording with high-quality options');
+      
+      let newRecording;
+      try {
+        const { recording } = await Audio.Recording.createAsync(currentRecordingOptions);
+        newRecording = recording;
+        console.log('Recording created successfully with custom options');
+      } catch (optionsError) {
+        console.log('Custom options failed, trying Expo preset:', optionsError.message);
+        // Fallback to Expo preset if our custom options fail
+        const { recording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+        newRecording = recording;
+        console.log('Recording created successfully with Expo preset');
+      }
+      
+      // Log recording options for debugging
+      console.log('Using high-quality recording mode');
+      
+      // Get recording status for debugging
+      const status = await newRecording.getStatusAsync();
+      console.log('Recording status after creation:', status);
+      
       setRecording(newRecording);
       setIsRecording(true);
       setIsPaused(false);
+      
+      // Start disk animation
+      startDiskAnimation();
     } catch (error) {
       console.error('Failed to start recording:', error);
-      Alert.alert('Recording Error', 'Failed to start recording. Please try again.');
+      console.error('Error details:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      });
+      
+      setIsRecording(false);
+      setRecording(null);
+      
+      let errorMessage = 'Failed to start recording. ';
+      if (error.message.includes('permission')) {
+        errorMessage += 'Please check microphone permissions.';
+      } else if (error.message.includes('audio')) {
+        errorMessage += 'Audio system error. Try restarting the app.';
+      } else {
+        errorMessage += error.message;
+      }
+      
+      Alert.alert('Recording Error', errorMessage);
     }
   };
 
