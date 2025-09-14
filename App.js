@@ -267,6 +267,22 @@ export default function App() {
   // Playback functions
   const playRecording = async (recording) => {
     try {
+      console.log('Attempting to play recording:', recording.uri);
+      
+      // Check if file exists and is valid
+      const fileInfo = await FileSystem.getInfoAsync(recording.uri);
+      console.log('File info for playback:', fileInfo);
+      
+      if (!fileInfo.exists) {
+        Alert.alert('Error', 'Recording file no longer exists');
+        return;
+      }
+      
+      if (fileInfo.size === 0) {
+        Alert.alert('Error', 'Recording file is empty');
+        return;
+      }
+      
       // Stop any currently playing sound
       if (currentSound) {
         await currentSound.unloadAsync();
@@ -279,6 +295,17 @@ export default function App() {
         return;
       }
 
+      // Set audio mode for playback
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+        shouldDuckAndroid: false,
+        playThroughEarpieceAndroid: false,
+      });
+
+      console.log('Creating sound from URI:', recording.uri);
+
       // Create and load the sound with volume settings
       const { sound } = await Audio.Sound.createAsync(
         { uri: recording.uri },
@@ -288,9 +315,10 @@ export default function App() {
           volume: 1.0,
           rate: 1.0,
           shouldCorrectPitch: true,
-          androidImplementation: 'MediaPlayer',
         }
       );
+      
+      console.log('Sound created successfully');
       
       setCurrentSound(sound);
       setPlayingId(recording.id);
@@ -298,8 +326,12 @@ export default function App() {
       // Set volume to maximum after loading
       await sound.setVolumeAsync(1.0);
       
+      console.log('Volume set to 1.0');
+      
       // Get duration and set up progress tracking
       const status = await sound.getStatusAsync();
+      console.log('Sound status:', status);
+      
       if (status.isLoaded) {
         setPlaybackDuration(status.durationMillis || 0);
       }
@@ -333,7 +365,10 @@ export default function App() {
 
     } catch (error) {
       console.error('Error playing recording:', error);
-      Alert.alert('Playback Error', 'Could not play the recording');
+      console.error('Error details:', error.message);
+      setPlayingId(null);
+      setCurrentSound(null);
+      Alert.alert('Playback Error', `Could not play the recording: ${error.message}`);
     }
   };
 
